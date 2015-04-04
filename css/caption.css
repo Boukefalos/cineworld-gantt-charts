@@ -1,0 +1,23 @@
+  		.captionjs, .captionjs figcaption {
+			margin: 0 0 20px;
+			padding: 0;
+		}
+		.captionjs figcaption {
+			font-size: 13px;
+			line-height: 1.5;
+			padding: 10px 15px;
+			border: 1px solid #ddd;
+			border-top: none;
+			background-color: #eee;
+		}
+		.captionjs.stacked figcaption {
+			background-color: rgba(0, 0, 0, 0.75);
+			color: #fff;
+			border: none;
+		}
+		.captionjs.animated figcaption {
+			border-top: 1px solid rgba(255, 255, 255, 0.3);
+			background-color: rgba(0, 0, 0, 0.75);
+			color: #fff;
+			border: none;
+		}

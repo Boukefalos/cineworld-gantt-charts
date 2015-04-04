@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>jQuery UI Button - Checkboxes</title>
+  <link rel="stylesheet" href="http://code.jquery.com/ui/1.11.2/themes/smoothness/jquery-ui.css">
+  <link rel="stylesheet" href="http://captionjs.com/captionjs.css">
+  <link rel="stylesheet" href="css/caption.css">
+  <style>
+        .film {
+            background-color: rgb(200, 200, 200);
+            display: inline-block;
+            border: 1px solid black;
+            overflow:hidden;
+            text-align: center;
+        }
+        figure {
+            border-top: 1px solid black;
+            border-bottom: 1px solid black;
+        }
+        .film figure {
+            margin-bottom: 0;
+        }
+  </style>  
+        <script type="text/javascript" src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
+        <script type="text/javascript" src="http://code.jquery.com/ui/1.11.1/jquery-ui.js"></script>
+        <script type="text/javascript" src="http://captionjs.com/jquery.caption.min.js"></script>
+        <script type="text/javascript" src="http://malsup.github.com/jquery.corner.js"></script>
+  
+        <script>
+        $(document).ready(function() {  
+            var title = 'blados';
+            var imgsrc = 'http://farm9.staticflickr.com/8497/8360650488_12afeb2af7_c.jpg';
+            var the_id = 12345;
+
+            var box = $('<div></div>').addClass('film').corner('top 5px');
+            var checkbox = $('<input />', { type: 'checkbox', id: the_id, checked: true })
+            var description = 'A bridge spanning a canal just west of Bangkok&rsquo;s Hua Lamphong Railway Station.';
+
+            // Generate image
+            image = $('<img />').attr({
+                width: '200px',
+                src: imgsrc,
+                'data-caption': description
+            });
+
+            // Add assembled box to container
+            $('#container').append(box
+                .append($('<span>' + title + '</span>'))
+                .append(image)
+                .append(checkbox[0].outerHTML));
+
+            // Add caption
+            image.captionjs({
+                mode: 'animated',
+                force_dimensions: true
+            });
+
+            // Change handler
+            $('input#' + the_id).change(function() {
+                console.log(this.checked);
+            })
+        });
+        </script>
+    </head>
+    <body>
+        <div id="container"></div> 
+    </body>
+</html>

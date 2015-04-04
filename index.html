@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <!-- Stylesheets -->
+        <link rel="stylesheet" href="css/caption.css">
+        <link rel="stylesheet" href="css/gantt.css" type="text/css">
+        <link rel="stylesheet" href="http://jqueryui.com/resources/demos/style.css">
+        <link rel="stylesheet" href="http://code.jquery.com/ui/1.11.1/themes/smoothness/jquery-ui.css">
+
+        <!-- Javascript libraries -->
+        <script type="text/javascript" src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
+        <script type="text/javascript" src="http://code.jquery.com/ui/1.11.1/jquery-ui.js"></script>
+        <script type="text/javascript" src="https://datejs.googlecode.com/svn/trunk/build/date-en-US.js"></script>
+        <script type="text/javascript" src="http://momentjs.com/downloads/moment.js"></script>
+        <script type="text/javascript" src="https://raw.githubusercontent.com/gf3/moment-range/master/lib/moment-range.min.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+        <script type="text/javascript" src="http://taitems.github.io/jQuery.Gantt/js/jquery.fn.gantt.min.js"></script>
+        <script type="text/javascript" src="http://captionjs.com/jquery.caption.min.js"></script>
+        <script type="text/javascript" src="http://malsup.github.com/jquery.corner.js"></script>
+
+        <style>
+        .film {
+            background-color: rgb(200, 200, 200);
+            display: inline-block;
+            border: 1px solid black;
+            overflow:hidden;
+            text-align: center;
+        }
+        figure {
+            border-top: 1px solid black;
+            border-bottom: 1px solid black;
+        }
+        .film figure {
+            margin-bottom: 0;
+        }
+        </style>
+  
+        <script type="text/javascript">
+            // Prompt user for required data
+            if (location.search.indexOf('reset') > 0 || $.cookie('cineworld_key') == undefined) {
+                cineworld_key = $.cookie('cineworld_key');
+                prompt_cookie = function(key, text) {
+                    value = $.cookie(key) || '';
+                    value = prompt(text, value) || '';
+                    $.cookie(key, value);
+                }
+                prompt_cookie('cineworld_key', 'Cineworld key?');
+                prompt_cookie('cineworld_place', 'Cineworld place?');                
+                prompt_cookie('tmdb_key', 'TMDb key?');
+            }
+
+            // Cineworld
+            var cineworld_url = 'http://www.cineworld.com/api/quickbook/'
+            var cineworld_key = $.cookie('cineworld_key');
+            var cineworld_place = $.cookie('cineworld_place');
+            var cineworld_trailers = 30;
+
+            // TMDb
+            var tmdb_url = 'http://api.themoviedb.org/3/';
+            var tmdb_key = $.cookie('tmdb_key');
+
+            // OMDb
+            var omdb_url = 'http://www.omdbapi.com/'
+
+            // Global variables
+            var cinema_id = -1;
+            var films = [];
+            var films_loaded = new $.Deferred();
+            var films_dates = [];
+
+            function debug(text) {
+                $('ul.debug').append('<li>' +  text + '</li>');
+            }
+
+            function error(text) {
+                $('ul.error').append('<li>' +  text + '</li>');
+            }
+
+            function handleErrors(response, status) {
+                if (response.errors) {
+                    $.each(response.errors, function() {
+                        error(this);
+                    });
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+
+            $(document).ready(function() {
+                $.get(tmdb_url + 'configuration', {
+                    api_key: tmdb_key
+                }, function(data) {
+                    image_url = data.images.base_url;
+                });
+                initDatepicker();
+            });
+
+            function initDatepicker() {
+                $('#from').datepicker({
+                    minDate: 0,
+                    altFormat: 'yymmdd',
+                    onClose: function(selectedDate) {
+                        $('#to').datepicker('option', 'minDate', selectedDate);
+                        updateList();
+                    }
+                });
+                $('#to').datepicker({
+                    altFormat: 'yymmdd',
+                    onClose: function(selectedDate) {
+                        $('#from').datepicker('option', 'maxDate', selectedDate);
+                        updateList();
+                    }
+                });
+
+                // Some time in the near future
+                $('#from').datepicker('setDate', 2);
+                $('#to').datepicker('setDate', 5);
+
+                // Populate list with initial dates
+                updateList();
+            }
+
+            function updateList() {
+                var start = new Date($('#from').val());
+                var end = new Date($('#to').val());
+
+                // List dates
+                dates = new Array();
+                while (start < end) {
+                    dates.push(start);
+                    start = new Date(start.setDate(start.getDate() + 1));
+                }
+
+                if (films_loaded.state() == 'resolved') {
+                    return processDates(dates);
+                }
+                if (cinema_id > -1) {
+                    getFilms();
+                } else {
+                    // Find cinemas
+                    $.when($.ajax({
+                        url: cineworld_url + 'cinemas',
+                        type: 'GET',
+                        data: {key: cineworld_key},
+                        dataType: 'jsonp',
+                        success: parseCinemas,
+                    })).done(function (){
+                        getFilms();
+                    });
+                }
+                films_loaded.done(function () {
+                    processDates(dates);
+                });
+            }
+
+            function processDates(dates) {
+                // Get performances for each date
+                var deferreds = [];
+                for (i in films) {
+                    // Store dates for each film
+                    if (!(i in films_dates)) {
+                        films_dates[i] = [];
+                    }
+                    for (j in dates) {
+                        deferreds.push($.ajax({
+                            url: cineworld_url + 'performances',
+                            type: 'GET',
+                            data: {key: cineworld_key, cinema: cinema_id, film: films[i].cineworld_edi, date: dates[j].toString('yyyyMMdd')},
+                            dataType: 'jsonp',
+                            success: function(i, date) {
+                                return function(response, status) {
+                                    if (!handleErrors(response, status)) {
+                                        parsePerformances(i, date, response.performances)
+                                    }
+                                }
+                            }(i, dates[j])
+                        }));
+                    }
+                }
+
+                // Draw chart when performances are loaded
+                $.when.apply($, deferreds).done(drawChart);
+            }
+
+            function parseCinemas(response, status) {
+                if (!handleErrors(response, status)) {
+                    // Find id for selected cinema
+                    $.each(response.cinemas, function() {
+                        if (this.name.indexOf(cineworld_place) >= 0) {
+                            cinema_id = this.id;
+                            return;
+                        }
+                    });
+                     $('span.cinema.id').append(cinema_id);
+                    if (cinema_id < 0) {
+                        error('Cinema "' + cineworld_place + '" not found');
+                    }
+                }
+            }
+
+            function getFilms() {
+                // Find films in selected cinema
+                $.ajax({
+                    url: cineworld_url + 'films',
+                    type: 'GET',
+                    data: {key: cineworld_key, full: true, cinema: cinema_id},
+                    dataType: 'jsonp',
+                    success: function(response, status) {
+                        if (!handleErrors(response, status)) {
+                            processFilms(response.films);
+                        }
+                    }
+                });
+            }
+
+            function processFilms(cineworld_films) {
+                // Keep track of duplicate films
+                cineworld_film_ids = [];
+
+                // Initialise asynchronous requests
+                var films_deferreds = [new $.Deferred()];
+
+                // Iterate over films
+                $.each(cineworld_films, function(i, cineworld_film) {
+                    // Skip duplicated films
+                     if (cineworld_film_ids.indexOf(cineworld_film.id) > -1) {
+                        return;
+                    }                    
+                    cineworld_film_ids.push(cineworld_film.id);
+
+                    // Add film to deferred array
+                    i = films_deferreds.push(new $.Deferred()) - 1;
+                    if (i == 1) {
+                        films_deferreds[0].resolve();
+                    }
+
+                    // Initialise film object with cineworld data
+                    var film = {};
+                    processFilm(cineworld_film, film)
+
+                    // Search film on TMDb
+                    $.get(tmdb_url + 'search/movie', {api_key: tmdb_key, query: title}).done(function(data) {
+                        title = film.title;
+                        if (data.results.length < 1) {
+                            films_deferreds[i].resolve();
+                            return error('No film found for "' +  film.title +  '"');
+                        }
+
+                        // Use first result
+                        film.tmdb_id = data.results[0].id;
+
+                        // Initialise asynchronous requests
+                        var film_deferreds = [];
+
+                        // Get film details from TMDb                        
+                        film_deferreds.push($.get(tmdb_url + 'movie/' + film.tmdb_id, {api_key: tmdb_key}));
+
+                        // Search film on OMDb                        
+                        film_deferreds.push($.getJSON(omdb_url + '?plot=full&r=json&t=' + title));
+
+                        $.when.apply($, film_deferreds).done(function() {
+                            // Process TMDb data
+                            tmdb_film = arguments[0][0];
+                            runtime = tmdb_film.runtime;
+                            if (runtime < 1) {
+                                films_deferreds[i].resolve();
+                                return error('No valid runtime found for "' +  film.title +  '"');
+                            }
+                            film.runtime = runtime;
+
+                             // Process OMDb data
+                            film_omdb = arguments[1][0]
+                            if (film_omdb.Response == 'False') {
+                                error('Nothing found on OMDb for "' +  film.title +  '"');
+                            } else {
+                                film.genre = film_omdb.Genre;
+                                film.plot = film_omdb.Plot;
+                                film.imdb_id = film_omdb.imdbID;
+                                film.imdb_score = film_omdb.imdbRating;
+                                film.imdb_votes = film_omdb.imdbVotes;
+                            }
+                            if (tmdb_film.poster_path != null) {
+                                film.poster_url = image_url + 'w500' + tmdb_film.poster_path;
+                            }
+
+                            // Store film
+                            films.push(film);
+                            films_deferreds[i].resolve();                            
+                        });                        
+                    });
+                });
+                $.when.apply($, films_deferreds).done(function() {
+                    films_loaded.resolve();
+                });
+            }
+
+            function processFilm(film, object) {
+                // Remove edition (2D, 3D, Take 2, IMAX, Opera) from title
+                title_parts = (title = film.title).split(' - ');
+
+                if (title_parts.length > 1) {
+                    edition = title_parts[0];
+                    title = title_parts[1];
+                } else {
+                    edition = '';
+                }
+
+                // Store values
+                object.cineworld_edi = film.edi
+                object.cineworld_id = film.id
+                object.title = title;
+                object.edition = edition;
+            }
+
+            function parsePerformances(i, date, performances) {
+                $.each(performances, function() {
+                    if (this.type == 'reg') {
+                        var time = this.time.split(':');
+                        date.setHours(time[0]);
+                        date.setMinutes(time[1]);
+                        films_dates[i].push(new Date(date));
+                    }
+                });
+            }
+
+            function drawChart() {
+                var source = []
+                // Iterate over films
+                for (i in films_dates) {
+                    var film = films[i];
+                    if (films_dates[i].length == 0) {
+                        continue;
+                    }
+
+                    drawBox(i);
+                    var values = [[]];
+                    var rowRange;
+                    var k = -1;
+
+                    // Iterate over dates
+                    for (j in films_dates[i]) {
+                        // Calculate actual dates by considering trailers
+                        var date = films_dates[i][j];                        
+                        var startDate = new Date(date);
+                        var endDate = new Date(date);
+                        startDate.addMinutes(cineworld_trailers);
+                        endDate.addMinutes(film.runtime + cineworld_trailers);
+                        
+                        // Keep track of overlapping performances
+                        var range = moment().range(startDate, endDate);
+                        if (k < 0 || range.overlaps(rowRange)) {
+                            rowRange = range
+                            values[++k] = []; 
+                        }
+                        rowRange.add(range);
+
+                        // Add entry for trailers
+                        values[k].push({
+                            from: date,
+                            to: startDate,
+                            desc: 'Trailers',
+                            customClass: 'ganttGreen'
+                        });
+
+                        // Add entry for performance
+                        values[k].push({
+                            from: startDate,
+                            to: endDate,
+                            desc: '(' + film.genre + ') ' + film.plot,
+                            label: date.toString('HH:mm'),
+                            customClass: 'ganttRed'
+                        });
+                    }
+
+                    // Combine all entries
+                    for (i in values) {
+                        source.push({
+                            name: film.title,
+                            desc: '<span onclick="descriptionClicked(' + i + ')">' + film.runtime + '</span>',
+                            values: values[i]
+                        });
+                    }
+                }
+
+                $('#gantt').gantt({
+                    source: source,
+                    navigate: 'scroll',
+                    scale: 'hours',
+                    itemsPerPage: 10
+                })
+            }
+
+            function drawBox(i) {
+                var film = films[i];
+                var box = $('<div></div>').addClass('film').corner('top 5px');
+                var checkbox = $('<input />', { type: 'checkbox', id: 'film_' + i, checked: true })
+                var description = film.imdb_id + ': ' + film.imdb_score + ' (' + film.imdb_votes + ')';
+
+                // Generate image
+                image = $('<img />').attr({
+                    width: '100px',
+                    src: film.poster_url,
+                    'data-caption': description
+                });
+
+                // Add assembled box to container
+                $('#container').append(box
+                    .append($('<span>' + film.title + '</span>'))
+                    .append(image)
+                    .append(checkbox[0].outerHTML));
+
+                // Add caption
+                image.captionjs({
+                    mode: 'animated',
+                    force_dimensions: true
+                });
+
+                // Change handler
+                $('input#film_' + i).change(function() {
+                    console.log(this.checked);
+                })
+            }
+
+            function descriptionClicked(i) {
+                console.log('Clicked on film #' + i + ': ' + films[i].title);
+            }
+        </script>
+    </head>
+    <body>
+        <input type="button" onclick="updateList()" value="Go!" />
+
+        <!-- Date picker -->
+        <label for="from">From</label>
+        <input type="text" id="from">
+        <input type="text" id="from-alt" style="display: none;">
+        <label for="to">to</label>
+        <input type="text" id="to" name="to">
+
+        <!-- Gantt chart -->
+        <div id="data" style="width: 1000px; height: 200px;"></div>
+        <div id="gantt" style="width: 900px; margin: 0 auto;"></div>
+
+        <!-- Developer messages -->
+        <p>Debug:</p>
+        <ul class="debug"></ul>
+        <p>Error:</p>
+        <ul class="error" style="color: red"></ul>
+
+        <!-- Selections -->
+        <div id="container"></div>        
+    </body>
+</html>
